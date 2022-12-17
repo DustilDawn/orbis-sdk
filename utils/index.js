@@ -8,7 +8,8 @@ import { Ed25519Provider } from 'key-did-provider-ed25519'
 import { getResolver } from 'key-did-resolver'
 
 /** Manage did:pkh */
-import { EthereumWebAuth, getAccountId } from '@didtools/pkh-ethereum'
+import { EthereumWebAuth } from '@didtools/pkh-ethereum'
+import { getAccountId } from 'pkh-pkp';
 import { SolanaWebAuth, getAccountIdByNetwork} from '@didtools/pkh-solana'
 
 /** Force index a stream. This shouldn't be necessary because our indexer picks up all new streams automatically but at least we are 100% sure. */
