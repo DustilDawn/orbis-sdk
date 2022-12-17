@@ -2,7 +2,8 @@
 import { CeramicClient } from '@ceramicnetwork/http-client';
 import { TileDocument } from '@ceramicnetwork/stream-tile';
 import { DIDSession } from 'did-session'
-import { EthereumWebAuth, getAccountId } from '@didtools/pkh-ethereum'
+import { EthereumWebAuth } from '@didtools/pkh-ethereum'
+import { getAccountId } from 'pkh-pkp';
 import { Store } from './store.js';
 import axios from 'axios';
 
