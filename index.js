@@ -2,7 +2,8 @@
 import { CeramicClient } from '@ceramicnetwork/http-client';
 import { TileDocument } from '@ceramicnetwork/stream-tile';
 import { DIDSession } from 'did-session'
-import { EthereumWebAuth } from '@didtools/pkh-ethereum'
+import { EthereumWebAuth, getAccountId } from '@didtools/pkh-ethereum'
+import { EthereumWebAuth as EthereumWebAuthForPKP, getAccountIdForPKP } from 'pkh-pkp'
 import { getAccountId } from 'pkh-pkp';
 import { Store } from './store.js';
 import axios from 'axios';
@@ -285,6 +286,149 @@ export class Orbis {
 			result: "Success connecting to the DiD."
 		}
   }
+
+  /** The connect function will connect to an EVM wallet and create or connect to a Ceramic did */
+  async connect_pkp(provider, lit = true) {
+		/** If provider isn't passed we use window.ethereum */
+		if(!provider) {
+			if(window.ethereum) {
+				console.log("Orbis SDK: You need to pass the provider as an argument in the `connect()` function. We will be using window.ethereum by default.");
+				provider = window.ethereum;
+			} else {
+				alert("An ethereum provider is required to proceed with the connection to Ceramic.");
+				return false;
+			}
+		}
+
+		/** Step 1: Enable Ethereum provider (can be browser wallets or WalletConnect for now) */
+		let addresses;
+		try {
+			addresses = await provider.enable();
+		} catch(e) {
+			return {
+				status: 300,
+				error: e,
+				result: "Error enabling Ethereum provider."
+			}
+		}
+
+		/** Step 2: Check if user already has an active account on Orbis */
+		let authMethod;
+		let defaultChain = "1";
+		let address = addresses[0].toLowerCase();
+		let accountId = await getAccountIdForPKP(provider, address)
+
+		/** Check if the user trying to connect already has an existing did on Orbis */
+		let {data: existingDids, error: errorDids}  = await this.getDids(address);
+		if(existingDids && existingDids.length > 0) {
+			let sortedDids = sortByKey(existingDids, "count_followers");
+			let _didArr = sortedDids[0].did.split(":");
+			let defaultNetwork = _didArr[2];
+			if(defaultNetwork == "eip155") {
+				defaultChain = _didArr[3];
+			}
+		}
+
+		/** Update the default accountId used to connect */
+		console.log("Default chain to use: ", defaultChain);
+		accountId.chainId.reference = defaultChain.toString();
+
+		/** Step 2: Create an authMethod object using the address connected */
+		try {
+			authMethod = await EthereumWebAuthForPKP.getAuthMethod(provider, accountId)
+		} catch(e) {
+			return {
+				status: 300,
+				error: e,
+				result: "Error creating Ethereum provider object for Ceramic."
+			}
+		}
+
+		/** Step 3: Create a new session for this did */
+		let did;
+		try {
+			/** Expire session in 90 days by default */
+			const threeMonths = 60 * 60 * 24 * 90;
+
+			this.session = await DIDSession.authorize(
+				authMethod,
+				{
+					resources: [`ceramic://*`],
+					expiresInSecs: threeMonths
+				}
+			);
+			did = this.session.did;
+		} catch(e) {
+			return {
+				status: 300,
+				error: e,
+				result: "Error creating a session for the DiD."
+			}
+		}
+
+		/** Step 3 bis: Store session in localStorage to re-use */
+		try {
+			const sessionString = this.session.serialize()
+			this.store.setItem("ceramic-session", sessionString);
+			//localStorage.setItem("ceramic-session", sessionString);
+		} catch(e) {
+			console.log("Error creating sessionString: " + e);
+		}
+
+		/** Step 4: Assign did to Ceramic object  */
+		this.ceramic.did = did;
+
+		/** Step 5 (optional): Initialize the connection to Lit */
+		if(lit == true) {
+			//let _userAuthSig = localStorage.getItem("lit-auth-signature-" + address);
+			let _userAuthSig = await this.store.getItem("lit-auth-signature-" + address);
+			if(!_userAuthSig || _userAuthSig == "" || _userAuthSig == undefined) {
+				try {
+					/** Generate the signature for Lit */
+					let resLitSig = await generateLitSignature(provider, address, "ethereum", this.store);
+				} catch(e) {
+					console.log("Error connecting to Lit network: " + e);
+				}
+			} else {
+				/** User is already connected, save current accoutn signature in lit-auth-signature object for easy retrieval */
+				//localStorage.setItem("lit-auth-signature", _userAuthSig);
+				await this.store.setItem("lit-auth-signature", _userAuthSig);
+			}
+		}
+
+		/** Step 6: Force index did to retrieve blockchain details automatically */
+		let _resDid = await forceIndexDid(this.session.id);
+
+		/** Step 7: Get user profile details */
+		let { data, error, status } = await this.getProfile(this.session.id);
+
+		/** Check if user has configured Lit */
+		let hasLit = false;
+		let hasLitSig = await this.store.getItem("lit-auth-signature");
+		if(hasLitSig) {
+			hasLit = true;
+		}
+
+		let details;
+		if(data) {
+			details = data.details;
+			details.hasLit = hasLit;
+		} else {
+			details = {
+				did: this.session.id,
+				hasLit: hasLit,
+				profile: null
+			}
+		}
+
+		/** Return result */
+		return {
+			status: 200,
+			did: this.session.id,
+			details: details,
+			result: "Success connecting to the DiD."
+		}
+	}
 
 	/** The connect function will connect to an EVM wallet and create or connect to a Ceramic did */
   async connect_v2({provider, chain = "ethereum", lit = false, oauth = null}) {

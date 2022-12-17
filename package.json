@@ -1,6 +1,6 @@
 {
   "name": "orbis-sdk",
-  "version": "0.4.04-beta.43",
+  "version": "0.4.04-beta.44",
   "description": "Official package to implement quickly an Orbis powered decentralized social layer within your application.",
   "author": "Baptiste Grève",
   "license": "ISC",
