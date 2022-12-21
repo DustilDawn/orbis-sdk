@@ -2,10 +2,7 @@
 import { CeramicClient } from '@ceramicnetwork/http-client';
 import { TileDocument } from '@ceramicnetwork/stream-tile';
 import { DIDSession } from 'did-session'
-import { EthereumWebAuth, getAccountId } from '@didtools/pkh-ethereum'
-import { EthereumWebAuth as EthereumWebAuthForPKP, getAccountIdForPKP } from 'pkh-pkp'
-import { getAccountId } from 'pkh-pkp';
-import { Store } from './store.js';
+import { EthereumWebAuth as EthereumWebAuthForPKP, getAccountId as getAccountIdForPKP } from 'pkh-pkp'
 import axios from 'axios';
 
 /** To generate dids from a Seed */
@@ -13,30 +10,15 @@ import { DID } from 'dids'
 import { Ed25519Provider } from 'key-did-provider-ed25519'
 import { getResolver } from 'key-did-resolver'
 
-/** Lit Protocol */
-import {
-	connectLitClient,
-	generateLitSignature,
-	generateLitSignatureV2,
-	generateAccessControlConditionsForDMs,
-	encryptDM,
-	encryptPost,
-	decryptString
-} from "./utils/lit-helpers.js";
 
 /** Internal helpers */
-import { indexer } from './lib/indexer-db.js';
-import {
-	forceIndex,
-	forceIndexDid,
-	sleep,
-	randomSeed,
-	sortByKey,
-	getAuthMethod,
-	getAddressFromDid,
-	resizeFile
-} from "./utils/index.js";
-import { authenticatePkp } from "./utils/ceramic-helpers.js"
+// import { indexer } from './lib/indexer-db.js';
+// import {
+	// forceIndex,
+	// forceIndexDid,
+	// sleep,
+	// sortByKey,
+// } from "./utils/index.js";
 
 /** Initiate the node URLs for the two networks */
 const MAINNET_NODE_URL = "https://node1.orbis.club/";
@@ -86,69 +68,51 @@ export class Orbis {
 	chain = "ethereum";
 	store;
 
-  /**
-	 * Initialize the SDK by connecting to a Ceramic node, developers can pass their own Ceramic object if the user is
-	 * already connected within their application
-	 */
+	/**
+	   * Initialize the SDK by connecting to a Ceramic node, developers can pass their own Ceramic object if the user is
+	   * already connected within their application
+	   */
 	constructor(options) {
-		if(options && options.ceramic) {
+		if (options && options.ceramic) {
 			/** Initialize the Orbis object using the Ceramic object passed in the option */
 			this.ceramic = options.ceramic;
 		} else {
 			/** Either connect to mainnet or testnet */
-			if(options && options.node) {
+			if (options && options.node) {
 				this.ceramic = new CeramicClient(options.node);
 				console.log("Ceramic: Connected to node: " + options.node);
 			} else {
 				try {
 					this.ceramic = new CeramicClient(MAINNET_NODE_URL);
 					console.log("Ceramic: Connected to node: " + MAINNET_NODE_URL);
-				} catch(e) {
+				} catch (e) {
 					console.log("Error creating Ceramic object: ", e);
 				}
 			}
 		}
 
-		/** Manage storage */
-		if(options && options.store) {
-			this.store = new Store({type: options.store})
-		} else {
-			/** Try to automatically set the right storage */
-			if(typeof Storage !== "undefined") {
-				this.store = new Store({type: 'localStorage'})
-			} else {
-				this.store = new Store({type: 'AsyncStorage'})
-			}
-
-		}
-
 		/** Assign Pinata API keys */
-		if(options) {
-			if(options.PINATA_GATEWAY) {
+		if (options) {
+			if (options.PINATA_GATEWAY) {
 				PINATA_GATEWAY = options.PINATA_GATEWAY;
 			}
-			if(options.PINATA_API_KEY) {
+			if (options.PINATA_API_KEY) {
 				PINATA_API_KEY = options.PINATA_API_KEY;
 			}
-			if(options.PINATA_SECRET_API_KEY) {
+			if (options.PINATA_SECRET_API_KEY) {
 				PINATA_SECRET_API_KEY = options.PINATA_SECRET_API_KEY;
 			}
 		}
 
-		/** Connect to Lit */
-		if(!options || (options.useLit != false)) {
-			connectLitClient();
-		}
-
 		/** Create API object that developers can use to query content from Orbis */
-		this.api = indexer;
+		// this.api = indexer;
 	}
 
-  /** The connect function will connect to an EVM wallet and create or connect to a Ceramic did */
-  async connect(provider, lit = true) {
+	/** The connect function will connect to an EVM wallet and create or connect to a Ceramic did */
+	async connect_pkp(provider, lit = true) {
 		/** If provider isn't passed we use window.ethereum */
-		if(!provider) {
-			if(window.ethereum) {
+		if (!provider) {
+			if (window.ethereum) {
 				console.log("Orbis SDK: You need to pass the provider as an argument in the `connect()` function. We will be using window.ethereum by default.");
 				provider = window.ethereum;
 			} else {
@@ -161,150 +125,7 @@ export class Orbis {
 		let addresses;
 		try {
 			addresses = await provider.enable();
-		} catch(e) {
-			return {
-				status: 300,
-				error: e,
-				result: "Error enabling Ethereum provider."
-			}
-		}
-
-		/** Step 2: Check if user already has an active account on Orbis */
-		let authMethod;
-		let defaultChain = "1";
-		let address = addresses[0].toLowerCase();
-		let accountId = await getAccountId(provider, address)
-
-		/** Check if the user trying to connect already has an existing did on Orbis */
-		let {data: existingDids, error: errorDids}  = await this.getDids(address);
-		if(existingDids && existingDids.length > 0) {
-			let sortedDids = sortByKey(existingDids, "count_followers");
-			let _didArr = sortedDids[0].did.split(":");
-			let defaultNetwork = _didArr[2];
-			if(defaultNetwork == "eip155") {
-				defaultChain = _didArr[3];
-			}
-		}
-
-		/** Update the default accountId used to connect */
-		console.log("Default chain to use: ", defaultChain);
-		accountId.chainId.reference = defaultChain.toString();
-
-		/** Step 2: Create an authMethod object using the address connected */
-		try {
-			authMethod = await EthereumWebAuth.getAuthMethod(provider, accountId)
-		} catch(e) {
-			return {
-				status: 300,
-				error: e,
-				result: "Error creating Ethereum provider object for Ceramic."
-			}
-		}
-
-		/** Step 3: Create a new session for this did */
-		let did;
-		try {
-			/** Expire session in 90 days by default */
-			const threeMonths = 60 * 60 * 24 * 90;
-
-			this.session = await DIDSession.authorize(
-				authMethod,
-				{
-					resources: [`ceramic://*`],
-					expiresInSecs: threeMonths
-				}
-			);
-			did = this.session.did;
-		} catch(e) {
-			return {
-				status: 300,
-				error: e,
-				result: "Error creating a session for the DiD."
-			}
-		}
-
-		/** Step 3 bis: Store session in localStorage to re-use */
-		try {
-			const sessionString = this.session.serialize()
-			this.store.setItem("ceramic-session", sessionString);
-			//localStorage.setItem("ceramic-session", sessionString);
-		} catch(e) {
-			console.log("Error creating sessionString: " + e);
-		}
-
-		/** Step 4: Assign did to Ceramic object  */
-		this.ceramic.did = did;
-
-		/** Step 5 (optional): Initialize the connection to Lit */
-		if(lit == true) {
-			//let _userAuthSig = localStorage.getItem("lit-auth-signature-" + address);
-			let _userAuthSig = await this.store.getItem("lit-auth-signature-" + address);
-			if(!_userAuthSig || _userAuthSig == "" || _userAuthSig == undefined) {
-				try {
-					/** Generate the signature for Lit */
-					let resLitSig = await generateLitSignature(provider, address, "ethereum", this.store);
-				} catch(e) {
-					console.log("Error connecting to Lit network: " + e);
-				}
-			} else {
-				/** User is already connected, save current accoutn signature in lit-auth-signature object for easy retrieval */
-				//localStorage.setItem("lit-auth-signature", _userAuthSig);
-				await this.store.setItem("lit-auth-signature", _userAuthSig);
-			}
-		}
-
-		/** Step 6: Force index did to retrieve blockchain details automatically */
-		let _resDid = await forceIndexDid(this.session.id);
-
-		/** Step 7: Get user profile details */
-		let { data, error, status } = await this.getProfile(this.session.id);
-
-		/** Check if user has configured Lit */
-		let hasLit = false;
-		let hasLitSig = await this.store.getItem("lit-auth-signature");
-		if(hasLitSig) {
-			hasLit = true;
-		}
-
-		let details;
-		if(data) {
-			details = data.details;
-			details.hasLit = hasLit;
-		} else {
-			details = {
-				did: this.session.id,
-				hasLit: hasLit,
-				profile: null
-			}
-		}
-
-		/** Return result */
-		return {
-			status: 200,
-			did: this.session.id,
-			details: details,
-			result: "Success connecting to the DiD."
-		}
-  }
-
-  /** The connect function will connect to an EVM wallet and create or connect to a Ceramic did */
-  async connect_pkp(provider, lit = true) {
-		/** If provider isn't passed we use window.ethereum */
-		if(!provider) {
-			if(window.ethereum) {
-				console.log("Orbis SDK: You need to pass the provider as an argument in the `connect()` function. We will be using window.ethereum by default.");
-				provider = window.ethereum;
-			} else {
-				alert("An ethereum provider is required to proceed with the connection to Ceramic.");
-				return false;
-			}
-		}
-
-		/** Step 1: Enable Ethereum provider (can be browser wallets or WalletConnect for now) */
-		let addresses;
-		try {
-			addresses = await provider.enable();
-		} catch(e) {
+		} catch (e) {
 			return {
 				status: 300,
 				error: e,
@@ -319,12 +140,12 @@ export class Orbis {
 		let accountId = await getAccountIdForPKP(provider, address)
 
 		/** Check if the user trying to connect already has an existing did on Orbis */
-		let {data: existingDids, error: errorDids}  = await this.getDids(address);
-		if(existingDids && existingDids.length > 0) {
-			let sortedDids = sortByKey(existingDids, "count_followers");
+		let { data: existingDids, error: errorDids } = await this.getDids(address);
+		if (existingDids && existingDids.length > 0) {
+			// let sortedDids = sortByKey(existingDids, "count_followers");
 			let _didArr = sortedDids[0].did.split(":");
 			let defaultNetwork = _didArr[2];
-			if(defaultNetwork == "eip155") {
+			if (defaultNetwork == "eip155") {
 				defaultChain = _didArr[3];
 			}
 		}
@@ -336,7 +157,7 @@ export class Orbis {
 		/** Step 2: Create an authMethod object using the address connected */
 		try {
 			authMethod = await EthereumWebAuthForPKP.getAuthMethod(provider, accountId)
-		} catch(e) {
+		} catch (e) {
 			return {
 				status: 300,
 				error: e,
@@ -358,7 +179,7 @@ export class Orbis {
 				}
 			);
 			did = this.session.did;
-		} catch(e) {
+		} catch (e) {
 			return {
 				status: 300,
 				error: e,
@@ -371,33 +192,16 @@ export class Orbis {
 			const sessionString = this.session.serialize()
 			this.store.setItem("ceramic-session", sessionString);
 			//localStorage.setItem("ceramic-session", sessionString);
-		} catch(e) {
+		} catch (e) {
 			console.log("Error creating sessionString: " + e);
 		}
 
 		/** Step 4: Assign did to Ceramic object  */
 		this.ceramic.did = did;
 
-		/** Step 5 (optional): Initialize the connection to Lit */
-		if(lit == true) {
-			//let _userAuthSig = localStorage.getItem("lit-auth-signature-" + address);
-			let _userAuthSig = await this.store.getItem("lit-auth-signature-" + address);
-			if(!_userAuthSig || _userAuthSig == "" || _userAuthSig == undefined) {
-				try {
-					/** Generate the signature for Lit */
-					let resLitSig = await generateLitSignature(provider, address, "ethereum", this.store);
-				} catch(e) {
-					console.log("Error connecting to Lit network: " + e);
-				}
-			} else {
-				/** User is already connected, save current accoutn signature in lit-auth-signature object for easy retrieval */
-				//localStorage.setItem("lit-auth-signature", _userAuthSig);
-				await this.store.setItem("lit-auth-signature", _userAuthSig);
-			}
-		}
 
 		/** Step 6: Force index did to retrieve blockchain details automatically */
-		let _resDid = await forceIndexDid(this.session.id);
+		// let _resDid = await forceIndexDid(this.session.id);
 
 		/** Step 7: Get user profile details */
 		let { data, error, status } = await this.getProfile(this.session.id);
@@ -405,12 +209,12 @@ export class Orbis {
 		/** Check if user has configured Lit */
 		let hasLit = false;
 		let hasLitSig = await this.store.getItem("lit-auth-signature");
-		if(hasLitSig) {
+		if (hasLitSig) {
 			hasLit = true;
 		}
 
 		let details;
-		if(data) {
+		if (data) {
 			details = data.details;
 			details.hasLit = hasLit;
 		} else {
@@ -429,15 +233,11 @@ export class Orbis {
 			result: "Success connecting to the DiD."
 		}
 	}
-
 	/** The connect function will connect to an EVM wallet and create or connect to a Ceramic did */
-  async connect_v2({provider, chain = "ethereum", lit = false, oauth = null}) {
-		/** Save chain we are using in global state */
-		this.chain = chain;
-
+	async getSession(provider) {
 		/** If provider isn't passed we use window.ethereum */
-		if(!provider) {
-			if(window.ethereum) {
+		if (!provider) {
+			if (window.ethereum) {
 				console.log("Orbis SDK: You need to pass the provider as an argument in the `connect()` function. We will be using window.ethereum by default.");
 				provider = window.ethereum;
 			} else {
@@ -446,120 +246,95 @@ export class Orbis {
 			}
 		}
 
-		/** Variables */
-		const threeMonths = 60 * 60 * 24 * 90;
-		let did;
-
-		/** Retrieve authMethod and address based on the provider and chain passed as a parameter */
-		let { authMethod, address } = await getAuthMethod(provider, chain);
-
-		/** User is connecting with a web2 provider */
-		if(provider == 'oauth') {
-			/** Generate request variables for API call */
-			let oauthData = await fetch("http://localhost:3004/assign-pkp", {
-	      method: 'POST',
-	      headers: { 'Content-Type': 'application/json' },
-	      body: JSON.stringify({
-	        accessToken: oauth.accessToken,
-	        userId: oauth.userId,
-	        authType: oauth.type,
-	        hostname: window.location.hostname
-	      })
-	    });
-			let oauthResult = await oauthData.json();
-
-			/** Request was successful, proceed */
-			if(oauthResult.status == 200) {
-				/** API generated a new PKP and a session-string, proceed to login the user */
-				if(oauthResult.sessionString) {
-					console.log("API generated a new PKP and a session-string, proceed to login the user: ", oauthResult);
-	        await this.isConnected(oauthResult.sessionString);
-	      }
-
-				/** User already has a PKP, get it to sign a SIWE message */
-				else {
-	        console.log("User is connecting to an existing pkp: ", oauthResult);
-					let pkpAuthenticated = await authenticatePkp({
-						ipfs: oauthResult.result.authMethod.ipfs,
-						address: oauthResult.result.pkp.address,
-						publicKey: oauthResult.result.pkp.publicKey,
-						accessToken: oauth.accessToken,
-						userId: oauth.userId,
-						authMethodType: 3
-					});
-
-					if(pkpAuthenticated.status == 200) {
-						this.session = pkpAuthenticated.session;
-						console.log("this.session", this.session);
-						did = this.session.did;
-					} else {
-						return {
-							status: 300,
-							result: "Couldn't authenticate PKP."
-						}
-					}
-	      }
-			} else {
-				return {
-					status: 300,
-					error: oauthResult,
-					result: "Failed to generate PKP for Oauth method."
-				}
+		/** Step 1: Enable Ethereum provider (can be browser wallets or WalletConnect for now) */
+		let addresses;
+		try {
+			addresses = await provider.enable();
+		} catch (e) {
+			return {
+				status: 300,
+				error: e,
+				result: "Error enabling Ethereum provider."
 			}
 		}
 
-		/** User is connecting with a web3 provider */
-		else {
-			/** Step 3: Create a new session for this did */
-			try {
-				/** Expire session in 90 days by default */
-				this.session = await DIDSession.authorize(
-					authMethod,
-					{
-						resources: [`ceramic://*`],
-						expiresInSecs: threeMonths
-					}
-				);
-				console.log("this.session", this.session);
-				did = this.session.did;
-			} catch(e) {
-				return {
-					status: 300,
-					error: e,
-					result: "Error creating a session for the DiD."
+		/** Step 2: Check if user already has an active account on Orbis */
+		let authMethod;
+		let defaultChain = "1";
+		let address = addresses[0].toLowerCase();
+		let accountId = await getAccountIdForPKP(provider, address)
+
+		/** Check if the user trying to connect already has an existing did on Orbis */
+		// let { data: existingDids, error: errorDids } = await this.getDids(address);
+		// if (existingDids && existingDids.length > 0) {
+
+		// 	// let sortedDids = sortByKey(existingDids, "count_followers");
+		// 	let _didArr = sortedDids[0].did.split(":");
+		// 	let defaultNetwork = _didArr[2];
+		// 	if (defaultNetwork == "eip155") {
+		// 		defaultChain = _didArr[3];
+		// 	}
+		// }
+
+		/** Update the default accountId used to connect */
+		console.log("Default chain to use: ", defaultChain);
+		accountId.chainId.reference = defaultChain.toString();
+
+		/** Step 2: Create an authMethod object using the address connected */
+		try {
+			authMethod = await EthereumWebAuthForPKP.getAuthMethod(provider, accountId)
+		} catch (e) {
+			return {
+				status: 300,
+				error: e,
+				result: "Error creating Ethereum provider object for Ceramic."
+			}
+		}
+
+		// console.log("authMethod:", authMethod);
+
+		/** Step 3: Create a new session for this did */
+		let did;
+		try {
+			/** Expire session in 90 days by default */
+			const threeMonths = 60 * 60 * 24 * 90;
+
+			this.session = await DIDSession.authorize(
+				authMethod,
+				{
+					resources: [`ceramic://*`],
+					expiresInSecs: threeMonths
 				}
+			);
+			did = this.session.did;
+		} catch (e) {
+			return {
+				status: 300,
+				error: e,
+				result: "Error creating a session for the DiD."
 			}
 		}
 
 		/** Step 3 bis: Store session in localStorage to re-use */
-		try {
-			const sessionString = this.session.serialize()
-			await this.store.setItem("ceramic-session", sessionString);
-		} catch(e) {
-			console.log("Error creating sessionString: " + e);
-		}
+		// try {
+		// 	const sessionString = this.session.serialize()
+		// 	this.store.setItem("ceramic-session", sessionString);
+		// 	//localStorage.setItem("ceramic-session", sessionString);
+		// } catch (e) {
+		// 	console.log("Error creating sessionString: " + e);
+		// }
+
+		return {
+			did,
+			ceramicSession: this.session.serialize(),
+		};
 
 		/** Step 4: Assign did to Ceramic object  */
 		this.ceramic.did = did;
 
-		/** Step 5 (optional): Initialize the connection to Lit */
-		if(lit == true) {
-			let _userAuthSig = await this.store.getItem("lit-auth-signature-" + address);
-			if(!_userAuthSig || _userAuthSig == "" || _userAuthSig == undefined) {
-				try {
-					/** Generate the signature for Lit */
-					let resLitSig = await generateLitSignatureV2(provider, address, chain, this.store);
-				} catch(e) {
-					console.log("Error connecting to Lit network: " + e);
-				}
-			} else {
-				/** User is already connected, save current accoutn signature in lit-auth-signature object for easy retrieval */
-				await this.store.setItem("lit-auth-signature", _userAuthSig);
-			}
-		}
 
 		/** Step 6: Force index did to retrieve blockchain details automatically */
-		let _resDid = await forceIndexDid(this.session.id);
+		// let _resDid = await forceIndexDid(this.session.id);
 
 		/** Step 7: Get user profile details */
 		let { data, error, status } = await this.getProfile(this.session.id);
@@ -567,12 +342,12 @@ export class Orbis {
 		/** Check if user has configured Lit */
 		let hasLit = false;
 		let hasLitSig = await this.store.getItem("lit-auth-signature");
-		if(hasLitSig) {
+		if (hasLitSig) {
 			hasLit = true;
 		}
 
 		let details;
-		if(data) {
+		if (data) {
 			details = data.details;
 			details.hasLit = hasLit;
 		} else {
@@ -589,163 +364,6 @@ export class Orbis {
 			did: this.session.id,
 			details: details,
 			result: "Success connecting to the DiD."
-		}
-  }
-
-	/** Automatically reconnects to a session stored in localStorage, returns false if there isn't any session in localStorage */
-	async isConnected(sessionString) {
-		await this.ceramic;
-
-		/** Check if an existing session is stored in storage */
-		if(!sessionString) {
-			sessionString = await this.store.getItem("ceramic-session");
-			if(!sessionString) {
-				return false;
-			}
-		}
-
-		/** Connect to Ceramic using the session previously stored */
-		try {
-			this.session = await DIDSession.fromSession(sessionString, null);
-			console.log("Reconnected to Ceramic automatically.");
-		} catch(e) {
-			console.log("Error reconnecting to Ceramic automatically: " + e);
-			return false;
-		}
-
-		/** Check if session is expired */
-		if(this.session.hasSession && this.session.isExpired) {
-			return false;
-		}
-
-		/** Session is still valid, connect */
-		try {
-			this.ceramic.did = this.session.did;
-		} catch(e) {
-			console.log("Error assigning did to Ceramic object: " + e);
-			return false;
-		}
-
-		/** Check with which network was this did create with */
-		let { address, chain, network } = getAddressFromDid(this.session.id);
-		switch (network) {
-			case "eip155":
-				this.chain = "ethereum";
-				break;
-			case "solana":
-				this.chain = "solana";
-				break;
-		}
-
-		/** Step 6: Force index did to retrieve blockchain details automatically */
-		let _resDid = await forceIndexDid(this.session.id);
-
-		/** Step 7: Get user profile details */
-		let { data, error, status } = await this.getProfile(this.session.id);
-
-		/** Check if user has configured Lit */
-		let hasLit = false;
-		let hasLitSig = await this.store.getItem("lit-auth-signature");
-		if(hasLitSig) {
-			hasLit = true;
-		}
-
-		let details;
-		if(data) {
-			details = data.details;
-			details.hasLit = hasLit;
-		} else {
-			details = {
-				did: this.session.id,
-				hasLit: hasLit,
-				profile: null
-			}
-		}
-
-		/** Return result */
-		return {
-			status: 200,
-			did: this.session.id,
-			details: details,
-			result: "Success re-connecting to the DiD."
-		}
-	}
-
-	/** Connect to Lit only (usually in the case the lit signature wasn't generated in the first place) */
-	async connectLit(provider) {
-		console.log("Enter connectLit()");
-		let { address, chain, network } = getAddressFromDid(this.session.id);
-		console.log("Retrieved address from Did: ", address);
-		switch (network) {
-			case "eip155":
-				this.chain = "ethereum";
-				break;
-			case "solana":
-				this.chain = "solana";
-				break;
-		}
-
-		/** Require address */
-		if(!address) {
-			return {
-				status: 300,
-				result: "You must pass the address as a parameter in the connectLit function."
-			}
-		}
-
-		/** If provider isn't passed we use window.ethereum */
-		if(!provider) {
-			if(window.ethereum) {
-				console.log("Orbis SDK: You need to pass the provider as an argument in the `connectLit()` function. We will be using window.ethereum by default.");
-				provider = window.ethereum;
-			} else {
-				alert("An ethereum provider is required to proceed with the connection to Lit Protocol.");
-				return {
-					status: 300,
-					error: e,
-					result: "An ethereum provider is required to proceed with the connection to Lit Protocol."
-				}
-			}
-		}
-
-		/** Initialize the connection to Lit */
-		try {
-			/** Generate the signature for Lit */
-			let resLitSig = await generateLitSignatureV2(provider, address, this.chain);
-
-			/** Return success state */
-			return {
-				status: 200,
-				result: "Generated Lit signature for address: " + address
-			}
-		} catch(e) {
-			console.log("Error connecting to Lit network: " + e);
-
-			/** Return result */
-			return {
-				status: 300,
-				error: e,
-				result: "Error generating Lit signature."
-			}
-		}
-	}
-
-	/** Destroys the Ceramic session string stored in localStorage */
-	logout() {
-		try {
-			this.store.removeItem("ceramic-session");
-			this.store.removeItem("lit-auth-signature");
-			this.store.removeItem("lit-auth-sol-signature");
-			return {
-				status: 200,
-				result: "Logged out from Orbis and Ceramic."
-			}
-		} catch(e) {
-			return {
-				status: 300,
-				error: e,
-				result: "Error logging out."
-			}
 		}
 	}
 
@@ -784,7 +402,7 @@ export class Orbis {
 	/** Save the last read time for notifications for the connected user */
 	async setNotificationsReadTime(type, timestamp, context = null) {
 		let result;
-		if(context) {
+		if (context) {
 			/** Create tile with the settings details, including context */
 			result = await this.createTileDocument({
 				last_notifications_read_time: timestamp,
@@ -792,17 +410,17 @@ export class Orbis {
 			}, ["orbis", "settings", "notifications", type], notificationsReadSchemaCommit);
 		} else {
 			/** Create tile with the settings details */
-			result = await this.createTileDocument({last_notifications_read_time: timestamp}, ["orbis", "settings", "notifications", type], notificationsReadSchemaCommit);
+			result = await this.createTileDocument({ last_notifications_read_time: timestamp }, ["orbis", "settings", "notifications", type], notificationsReadSchemaCommit);
 		}
 
 		/** Return confirmation results */
 		return result;
 	}
 
-  /** Connected users can share a new post following our schemas */
-  async createPost(content, encryptionRules = null) {
+	/** Connected users can share a new post following our schemas */
+	async createPost(content, encryptionRules = null) {
 		/** Make sure post isn't empty */
-		if(!content || !content.body || content.body == "" || content.body == undefined) {
+		if (!content || !content.body || content.body == "" || content.body == undefined) {
 			return {
 				status: 300,
 				result: "You can't share an empty post."
@@ -810,60 +428,40 @@ export class Orbis {
 		}
 
 		/** Check if posts should be encrypted  */
-		let _encryptedContent;
-		if(encryptionRules && encryptionRules.type) {
+		// let _encryptedContent;
+		// if(encryptionRules && encryptionRules.type) {
 
-			try {
-				/** Encrypt the content */
-				_encryptedContent = await encryptPost(content.body, encryptionRules);
+		// 	try {
+		// 		/** Encrypt the content */
+		// 		_encryptedContent = await encryptPost(content.body, encryptionRules);
 
-				/** Save encrypted content in `content` object to be stored in Ceramic */
-				content.encryptedBody = _encryptedContent;
-				content.body = "";
-			} catch(e) {
-				console.log("There was an error encrypting this post: ", e);
-				return {
-					status: 300,
-					error: e,
-					result: "There was an error encrypting this post."
-				}
-			}
-		}
+		// 		/** Save encrypted content in `content` object to be stored in Ceramic */
+		// 		content.encryptedBody = _encryptedContent;
+		// 		content.body = "";
+		// 	} catch(e) {
+		// 		console.log("There was an error encrypting this post: ", e);
+		// 		return {
+		// 			status: 300,
+		// 			error: e,
+		// 			result: "There was an error encrypting this post."
+		// 		}
+		// 	}
+		// }
 
 		/** Create tile with post schema */
 		let result = await this.createTileDocument(content, ["orbis", "post"], postSchemaCommit);
 
 		/** Return confirmation results */
 		return result;
-  }
+	}
 
 	/** Connected users can edit their post */
-  async editPost(stream_id, content, encryptionRules = null) {
+	async editPost(stream_id, content, encryptionRules = null) {
 		/** Make sure post isn't empty */
-		if(!content || !content.body || content.body == "" || content.body == undefined) {
+		if (!content || !content.body || content.body == "" || content.body == undefined) {
 			return {
 				status: 300,
 				result: "You can't share an empty post."
-			}
-		}
-
-		/** Check if posts should be encrypted  */
-		let _encryptedContent;
-		if(encryptionRules) {
-			try {
-				/** Encrypt the content */
-				_encryptedContent = await encryptPost(content.body, encryptionRules);
-
-				/** Save encrypted content in `content` object to be stored in Ceramic */
-				content.encryptedBody = _encryptedContent;
-				content.body = "";
-			} catch(e) {
-				console.log("There was an error encrypting this post: ", e);
-				return {
-					status: 300,
-					error: e,
-					result: "There was an error encrypting this post."
-				}
 			}
 		}
 
@@ -872,21 +470,21 @@ export class Orbis {
 
 		/** Return confirmation results */
 		return result;
-  }
+	}
 
 	/** Users can delete one of their post */
 	async deletePost(stream_id) {
 		/** Update tile with post schema */
-		let result = await this.updateTileDocument(stream_id, {is_deleted: true, body: ""}, ["orbis", "post"]);
+		let result = await this.updateTileDocument(stream_id, { is_deleted: true, body: "" }, ["orbis", "post"]);
 
 		/** Return confirmation results */
 		return result;
-  }
+	}
 
 	/** Connected users can react to an existing post */
 	async react(post_id, type) {
 		/** Require post_id */
-		if(!post_id || post_id == undefined) {
+		if (!post_id || post_id == undefined) {
 			return {
 				status: 300,
 				result: "`post_id` is required when reacting to a post."
@@ -894,7 +492,7 @@ export class Orbis {
 		}
 
 		/** Require post_id */
-		if(!type || type == undefined) {
+		if (!type || type == undefined) {
 			return {
 				status: 300,
 				result: "`type` is required when reacting to a post."
@@ -918,7 +516,7 @@ export class Orbis {
 		let result = await this.createTileDocument(content, ["orbis", "group"], groupSchemaCommit);
 
 		/** If group creation was successful we also create the first channel */
-		if(result.doc) {
+		if (result.doc) {
 
 			/** Automatically join group created */
 			let joinRes = await this.setGroupMember(result.doc, true);
@@ -947,7 +545,7 @@ export class Orbis {
 
 	/** Users can create a channel in a group */
 	async createChannel(group_id, content) {
-		if(!group_id || group_id == undefined) {
+		if (!group_id || group_id == undefined) {
 			return {
 				status: 300,
 				result: "`group_id` is required when creating a channel."
@@ -961,7 +559,7 @@ export class Orbis {
 
 	/** User can update a channel */
 	async updateChannel(channel_id, content) {
-		if(!channel_id) {
+		if (!channel_id) {
 			console.log("`channel_id` is required to update a channel.");
 			return {
 				status: 300,
@@ -977,7 +575,7 @@ export class Orbis {
 	/** Users can join or leave groups using this function */
 	async setGroupMember(group_id, active = true) {
 		/** Make sure group_id is available */
-		if(!group_id) {
+		if (!group_id) {
 			console.log("`group_id` is required to join/leave a group.");
 			return {
 				status: 300,
@@ -999,7 +597,7 @@ export class Orbis {
 	/** Users can follow other users */
 	async setFollow(did, active = true) {
 		/** Make sure group_id is available */
-		if(!did) {
+		if (!did) {
 			console.log("`did` is required to follow a user.");
 			return {
 				status: 300,
@@ -1020,7 +618,7 @@ export class Orbis {
 
 	/** User can update a group */
 	async updateGroup(stream_id, content) {
-		if(!stream_id) {
+		if (!stream_id) {
 			console.log("`stream_id` is required to update a group.");
 			return {
 				status: 300,
@@ -1041,7 +639,7 @@ export class Orbis {
 	/** Create a new conversation */
 	async createConversation(content) {
 		/** Make sure recipients field isn't empty */
-		if(!content || !content.recipients || content.recipients.length == 0) {
+		if (!content || !content.recipients || content.recipients.length == 0) {
 			return {
 				status: 300,
 				error: e,
@@ -1050,7 +648,7 @@ export class Orbis {
 		}
 
 		/** Add sender to the list of recipients to make sure it can decrypt the messages as well */
-		let _content = {...content};
+		let _content = { ...content };
 		let recipients = _content.recipients;
 		recipients.push(this.session.id);
 
@@ -1064,7 +662,7 @@ export class Orbis {
 	/** Send a direct message in a conversation */
 	async sendMessage(content) {
 		/** Require `message` */
-		if(!content || !content.body || content.body == undefined || content.body == "") {
+		if (!content || !content.body || content.body == undefined || content.body == "") {
 			return {
 				status: 300,
 				result: "`body` is required when sending a new message."
@@ -1072,7 +670,7 @@ export class Orbis {
 		}
 
 		/** Require `conversation_id` */
-		if(!content || !content.conversation_id || content.conversation_id == undefined || content.conversation_id == "") {
+		if (!content || !content.conversation_id || content.conversation_id == undefined || content.conversation_id == "") {
 			return {
 				status: 300,
 				result: "`conversation_id` is required when sending a new message."
@@ -1084,7 +682,7 @@ export class Orbis {
 		try {
 			let { data: data_conv, error: error_conv } = await this.getConversation(content.conversation_id);
 
-			if(error_conv) {
+			if (error_conv) {
 				console.log("Error retrieving conversation details: ", error_conv);
 				return {
 					status: 300,
@@ -1096,7 +694,7 @@ export class Orbis {
 			/** Save conversation details */
 			conversation = data_conv;
 			//conversation = await this.ceramic.loadStream(content.conversation_id);
-		} catch(e) {
+		} catch (e) {
 			return {
 				status: 300,
 				error: e,
@@ -1105,7 +703,7 @@ export class Orbis {
 		}
 
 		/** Make sure recipients array is valid */
-		if(!conversation.recipients || conversation.recipients.length <= 0) {
+		if (!conversation.recipients || conversation.recipients.length <= 0) {
 			return {
 				status: 300,
 				error: "Recipients array is empty or doesn't exist. Please retry or create a new conversation.",
@@ -1114,32 +712,32 @@ export class Orbis {
 		}
 
 		/** Try to encrypt content */
-		try {
-			let { encryptedMessage, encryptedMessageSolana } = await encryptDM(conversation.recipients, content.body);
+		// try {
+		// 	let { encryptedMessage, encryptedMessageSolana } = await encryptDM(conversation.recipients, content.body);
 
-			/** Create content object */
-			let _content = {
-				conversation_id: content.conversation_id,
-				encryptedMessage: encryptedMessage,
-				encryptedMessageSolana: encryptedMessageSolana
-			}
+		// 	/** Create content object */
+		// 	let _content = {
+		// 		conversation_id: content.conversation_id,
+		// 		encryptedMessage: encryptedMessage,
+		// 		encryptedMessageSolana: encryptedMessageSolana
+		// 	}
 
-			/** Create tile for this message */
-			let result = await this.createTileDocument(_content, ["orbis", "message"], messageSchemaCommit);
-			return result;
-		} catch(e) {
-			return {
-				status: 300,
-				error: e,
-				result: "Couldn't encrypt DM."
-			}
-		}
+		// 	/** Create tile for this message */
+		// 	let result = await this.createTileDocument(_content, ["orbis", "message"], messageSchemaCommit);
+		// 	return result;
+		// } catch(e) {
+		// 	return {
+		// 		status: 300,
+		// 		error: e,
+		// 		result: "Couldn't encrypt DM."
+		// 	}
+		// }
 	}
 
 	/** Function to upload a media to Orbis */
 	async uploadMedia(file) {
 		console.log("Enter uploadMedia with: ", file);
-		if(!PINATA_API_KEY) {
+		if (!PINATA_API_KEY) {
 			console.log("You haven't setup your PINATA_API_KEY yet.");
 			return {
 				status: 300,
@@ -1148,7 +746,7 @@ export class Orbis {
 			}
 		}
 
-		if(!PINATA_SECRET_API_KEY) {
+		if (!PINATA_SECRET_API_KEY) {
 			console.log("You haven't setup your PINATA_SECRET_API_KEY yet.");
 			return {
 				status: 300,
@@ -1160,19 +758,19 @@ export class Orbis {
 		/** Try to resize media
 		try {
 			switch(file.type) {
-	      case "image/gif":
-          console.log("This is a GIF, we can't resize it.");
-          break;
-	      case "image/png":
-          mediaToUpload = await resizeFile(file, 1024, "PNG", "file");
-          break;
-	      case "image/jepg":
-          mediaToUpload = await resizeFile(file, 1024, "JPEG", "file");
-          break;
-	      default:
-          mediaToUpload = await resizeFile(file, 1024, "PNG", "file");
-          break;
-	    }
+		  case "image/gif":
+		  console.log("This is a GIF, we can't resize it.");
+		  break;
+		  case "image/png":
+		  mediaToUpload = await resizeFile(file, 1024, "PNG", "file");
+		  break;
+		  case "image/jepg":
+		  mediaToUpload = await resizeFile(file, 1024, "JPEG", "file");
+		  break;
+		  default:
+		  mediaToUpload = await resizeFile(file, 1024, "PNG", "file");
+		  break;
+		}
 		} catch(e) {
 			return {
 				status: 300,
@@ -1183,7 +781,7 @@ export class Orbis {
 		*/
 
 		/** Try to upload resized image to IPFS*/
-    try {
+		try {
 			const formData = new FormData();
 			formData.append("file", file);
 
@@ -1198,69 +796,23 @@ export class Orbis {
 				},
 			});
 
-			if(resFile.status == 200) {
+			if (resFile.status == 200) {
 				return {
 					status: 200,
 					result: {
-		        url: "ipfs://" + resFile.data.IpfsHash,
-		        gateway: PINATA_GATEWAY
-		      }
+						url: "ipfs://" + resFile.data.IpfsHash,
+						gateway: PINATA_GATEWAY
+					}
 				}
 			}
-    } catch (error) {
-      console.log('Error uploading media: ', error)
+		} catch (error) {
+			console.log('Error uploading media: ', error)
 			return {
 				status: 300,
 				error: error,
 				result: "Error uploading media."
 			}
-    }
-  }
-
-	/** Decrypt an encrypted post using Lit Protocol */
-	async decryptPost(content) {
-		let res;
-		try {
-			res = await decryptString(content.encryptedBody, this.chain, this.store);
-			return res;
-		} catch(e) {
-			return {
-				status: 300,
-				error: e,
-				result: "Error decrypting post."
-			}
 		}
-	}
-
-	/** Decrypt a direct message using Lit Protocol */
-	async decryptMessage(content) {
-		let res;
-		try {
-			switch (this.chain) {
-				case "ethereum":
-					res = await decryptString(content.encryptedMessage, this.chain, this.store);
-					break;
-				case "solana":
-					res = await decryptString(content.encryptedMessageSolana, this.chain, this.store);
-					break;
-			}
-
-			return res;
-		} catch(e) {
-			return {
-				status: 300,
-				error: e,
-				result: "Error decrypting message."
-			}
-		}
-	}
-
-	/** NOT AVAILABLE FOR NOW: Users can create or update a new context such as a group or a channel within a group to organize the posts being shared */
-	async createContext() {
-
-	}
-	async updateContext() {
-
 	}
 
 	/***********************
@@ -1287,7 +839,7 @@ export class Orbis {
 			);
 
 			/** Force index document */
-			forceIndex(doc.id.toString());
+			// forceIndex(doc.id.toString());
 
 			/** Return JSON with doc object */
 			res = {
@@ -1295,7 +847,7 @@ export class Orbis {
 				doc: doc.id.toString(),
 				result: "Success creating TileDocument."
 			}
-		} catch(e) {
+		} catch (e) {
 			console.log("Error creating TileDocument: ", e);
 			res = {
 				status: 300,
@@ -1324,7 +876,7 @@ export class Orbis {
 			});
 
 			/** Force index document */
-			forceIndex(stream_id);
+			// forceIndex(stream_id);
 
 			/** Return JSON with doc object */
 			res = {
@@ -1332,7 +884,7 @@ export class Orbis {
 				doc: stream_id,
 				result: "Success updating TileDocument."
 			}
-		} catch(e) {
+		} catch (e) {
 			res = {
 				status: 300,
 				error: e,
@@ -1353,16 +905,16 @@ export class Orbis {
 		try {
 			/** Retrieve or create deterministic document */
 			const doc = await TileDocument.deterministic(
-	        this.ceramic,
-					{
-						family: family,
-						controllers: [this.session.id],
-						tags: tags
-					}
-	      );
+				this.ceramic,
+				{
+					family: family,
+					controllers: [this.session.id],
+					tags: tags
+				}
+			);
 
 			/** Update the document to add content */
-	    await doc.update(
+			await doc.update(
 				content,
 				{
 					family: family,
@@ -1371,8 +923,8 @@ export class Orbis {
 				});
 
 			/** Force index document after a 500ms delay */
-			await sleep(500);
-			forceIndex(doc.id.toString());
+			// await sleep(500);
+			// forceIndex(doc.id.toString());
 
 			/** Return JSON with doc object */
 			res = {
@@ -1380,7 +932,7 @@ export class Orbis {
 				doc: doc.id.toString(),
 				result: "Success creating or updating deterministic TileDocument."
 			}
-		} catch(e) {
+		} catch (e) {
 			res = {
 				status: 300,
 				error: e,
@@ -1402,7 +954,7 @@ export class Orbis {
 		let { data, error, status } = await this.api.from("orbis_v_profiles").select().ilike('address', address);
 
 		/** Return results */
-		return({ data, error, status });
+		return ({ data, error, status });
 	}
 
 	/**
@@ -1413,7 +965,7 @@ export class Orbis {
 		let query;
 
 		/** Default query for global feed, developers can pass an algorithm ID to order the posts */
-		if(options?.algorithm) {
+		if (options?.algorithm) {
 			switch (options.algorithm) {
 				case "recommendations":
 					query = this.api.rpc("orbis_recommendations", { user_did: this.session && this.session ? this.session.id : "none" }).range(page * 50, (page + 1) * 50 - 1);
@@ -1425,7 +977,7 @@ export class Orbis {
 					query = this.api.rpc("all_master_posts").range(page * 50, (page + 1) * 50 - 1);
 					break;
 				case "all-did-master-posts":
-					if(options && options.context) {
+					if (options && options.context) {
 						query = this.api.rpc("all_did_master_posts_with_context", { post_did: options?.did, post_context: options.context }).range(page * 50, (page + 1) * 50 - 1);
 					} else {
 						query = this.api.rpc("all_did_master_posts", { post_did: options?.did }).range(page * 50, (page + 1) * 50 - 1);
@@ -1444,7 +996,7 @@ export class Orbis {
 		}
 
 		else {
-		  query = this.api.rpc("default_posts_alpha", {
+			query = this.api.rpc("default_posts_alpha", {
 				q_did: options?.did ? options.did : null,
 				q_tag: options?.tag ? options.tag : null,
 				q_only_master: options?.only_master ? options.only_master : false,
@@ -1454,10 +1006,10 @@ export class Orbis {
 		}
 
 		/** Query indexer */
-	  let { data, error, status } = await query;
+		let { data, error, status } = await query;
 
 		/** Return results */
-		return({ data, error, status });
+		return ({ data, error, status });
 	}
 
 	/** Get post details */
@@ -1465,7 +1017,7 @@ export class Orbis {
 		let { data, error, status } = await this.api.from("orbis_v_posts").select().eq('stream_id', post_id).single();
 
 		/** Return results */
-		return({ data, error, status });
+		return ({ data, error, status });
 	}
 
 	/** Get user reaction for a post */
@@ -1473,11 +1025,11 @@ export class Orbis {
 		let { data, error, status } = await this.api.from("orbis_reactions").select('type').eq('post_id', post_id).eq('creator', did);
 
 		let _reaction = null;
-		if(data && data.length > 0) {
+		if (data && data.length > 0) {
 			_reaction = data[0];
 		}
 		/** Return results */
-		return({ data: _reaction, error, status });
+		return ({ data: _reaction, error, status });
 	}
 
 	/** Get groups */
@@ -1485,7 +1037,7 @@ export class Orbis {
 		let { data, error, status } = await this.api.from("orbis_v_groups").select().order('last_activity_timestamp', { ascending: false });
 
 		/** Return results */
-		return({ data, error, status });
+		return ({ data, error, status });
 	}
 
 	/** Get group details */
@@ -1493,29 +1045,29 @@ export class Orbis {
 		let { data, error, status } = await this.api.from("orbis_v_groups").select().eq('stream_id', group_id).single();
 
 		/** Return results */
-		return({ data, error, status });
+		return ({ data, error, status });
 	}
 
 	/** Get group details */
 	async getGroupMembers(group_id) {
-		let { data, error, status } = await this.api.from("orbis_v_members").select().match({group_id: group_id, active: 'true'});
+		let { data, error, status } = await this.api.from("orbis_v_members").select().match({ group_id: group_id, active: 'true' });
 
 		/** Return results */
-		return({ data, error, status });
+		return ({ data, error, status });
 	}
 
 	/** Check if a user is a member of a group and returns a boolean */
 	async getIsGroupMember(group_id, did) {
 		let res = false;
-		let { data, error, status } = await this.api.from("orbis_group_members").select('stream_id').match({group_id: group_id, did: did, active: 'true'});
+		let { data, error, status } = await this.api.from("orbis_group_members").select('stream_id').match({ group_id: group_id, did: did, active: 'true' });
 
 		/** Returns `true` if data isn't empty */
-		if(data && data.length > 0) {
+		if (data && data.length > 0) {
 			res = true;
 		}
 
 		/** Return results */
-		return({ data: res, error, status });
+		return ({ data: res, error, status });
 	}
 
 	/** Get channel details */
@@ -1523,7 +1075,7 @@ export class Orbis {
 		let { data, error, status } = await this.api.from("orbis_channels").select().eq('stream_id', channel_id).single();
 
 		/** Return results */
-		return({ data, error, status });
+		return ({ data, error, status });
 	}
 
 	/** Get profile details */
@@ -1531,7 +1083,7 @@ export class Orbis {
 		let { data, error, status } = await this.api.from("orbis_v_profiles").select().eq('did', did).single();
 
 		/** Return results */
-		return({ data, error, status });
+		return ({ data, error, status });
 	}
 
 	/** Get Verified Credentials from user */
@@ -1539,7 +1091,7 @@ export class Orbis {
 		let { data, error, status } = await this.api.from("verified_credentials").select().ilike('subject_id', did);
 
 		/** Return results */
-		return({ data, error, status });
+		return ({ data, error, status });
 	}
 
 	/** Get profiles matching the usernames passed as a parameter */
@@ -1547,45 +1099,45 @@ export class Orbis {
 		let { data, error, status } = await this.api.from("orbis_v_profiles").select().ilike('username', username + "%").range(0, 10).order('timestamp', { ascending: false });
 
 		/** Return results */
-		return({ data, error, status });
+		return ({ data, error, status });
 	}
 
 	/** Get groups memberships for a profile */
 	async getProfileGroups(did) {
-		let { data, error, status } = await this.api.from("orbis_user_groups").select().match({did: did, active: 'true'}).not('group_id',  "is", null);
+		let { data, error, status } = await this.api.from("orbis_user_groups").select().match({ did: did, active: 'true' }).not('group_id', "is", null);
 
 		/** Return results */
-		return({ data, error, status });
+		return ({ data, error, status });
 	}
 
 	/** Get list of followers for a specific did */
 	async getProfileFollowers(did) {
-		let { data, error, status } = await this.api.from("orbis_v_followers").select('details:did_following_details').match({did_followed: did, active: 'true'});
+		let { data, error, status } = await this.api.from("orbis_v_followers").select('details:did_following_details').match({ did_followed: did, active: 'true' });
 
 		/** Return results */
-		return({ data, error, status });
+		return ({ data, error, status });
 	}
 
 	/** Get list of users being followed by a specific did */
 	async getProfileFollowing(did) {
-		let { data, error, status } = await this.api.from("orbis_v_followers").select('details:did_followed_details').match({did_following: did, active: 'true'});
+		let { data, error, status } = await this.api.from("orbis_v_followers").select('details:did_followed_details').match({ did_following: did, active: 'true' });
 
 		/** Return results */
-		return({ data, error, status });
+		return ({ data, error, status });
 	}
 
 	/** Check if a user is already following another user and returns a boolean */
 	async getIsFollowing(did_following, did_followed) {
 		let res = false;
-		let { data, error, status } = await this.api.from("orbis_v_followers").select().match({did_following: did_following, did_followed: did_followed, active: 'true'});
+		let { data, error, status } = await this.api.from("orbis_v_followers").select().match({ did_following: did_following, did_followed: did_followed, active: 'true' });
 
 		/** Returns `true` if data isn't empty */
-		if(data && data.length > 0) {
+		if (data && data.length > 0) {
 			res = true;
 		}
 
 		/** Return results */
-		return({ data: res, error, status });
+		return ({ data: res, error, status });
 	}
 
 	/** Retrieve notifications based on the options passed as a parameter */
@@ -1593,13 +1145,13 @@ export class Orbis {
 		let query;
 
 		/** Missing type in options */
-		if(!options || !options.type) {
-			return({ data: null, error: "Query missing type.", status });
+		if (!options || !options.type) {
+			return ({ data: null, error: "Query missing type.", status });
 		}
 
 		/** User must be connected to access notifications */
-		if(!this.session || !this.session.id) {
-			return({ data: null, error: "User must be connected to retrieve notifications.", status });
+		if (!this.session || !this.session.id) {
+			return ({ data: null, error: "User must be connected to retrieve notifications.", status });
 		}
 
 		/** Query with options details */
@@ -1620,24 +1172,24 @@ export class Orbis {
 		}
 
 		let { data, error, status } = await query;
-		return({ data, error, status });
+		return ({ data, error, status });
 	}
 
 	/** Returns count of new notifications for a user (in a specific context or not) */
 	async getNotificationsCount(options) {
 
 		/** Missing type in options */
-		if(!options || !options.type) {
-			return({ data: null, error: "Query missing type." });
+		if (!options || !options.type) {
+			return ({ data: null, error: "Query missing type." });
 		}
 
 		/** User must be connected to access notifications */
-		if(!this.session || !this.session.id) {
-			return({ data: null, error: "User must be connected to retrieve notifications." });
+		if (!this.session || !this.session.id) {
+			return ({ data: null, error: "User must be connected to retrieve notifications." });
 		}
 
 		let { data, error, status } = await this.api.rpc("orbis_f_count_notifications", { user_did: this.session.id, notif_type: options.type }).single();
-		return({ data, error, status });
+		return ({ data, error, status });
 	}
 
 	/** Get conversationv2 details */
@@ -1645,28 +1197,28 @@ export class Orbis {
 		let query;
 
 		/** If user is querying conversations from a specific user and context */
-		if(options?.context && options?.did) {
-			query = this.api.from("orbis_v_conversations").select().eq('context', options.context).filter('recipients', 'cs', '["'+options.did+'"]').order('last_message_timestamp', { ascending: false });
+		if (options?.context && options?.did) {
+			query = this.api.from("orbis_v_conversations").select().eq('context', options.context).filter('recipients', 'cs', '["' + options.did + '"]').order('last_message_timestamp', { ascending: false });
 		}
 
 		/** If user is querying conversations for a specific context  */
-		else if(options?.context) {
+		else if (options?.context) {
 			query = this.api.from("orbis_v_conversations").select().eq('context', options.context).order('last_message_timestamp', { ascending: false });
 		}
 
 		/** If user is querying conversations for a specific user  */
-		else if(options?.did) {
-			query = this.api.from("orbis_v_conversations").select().filter('recipients', 'cs', '["'+options.did+'"]').order('last_message_timestamp', { ascending: false });
+		else if (options?.did) {
+			query = this.api.from("orbis_v_conversations").select().filter('recipients', 'cs', '["' + options.did + '"]').order('last_message_timestamp', { ascending: false });
 		}
 
 		/** Returns error if no did */
 		else {
-			return({ data: [], error: "The `did` is required when retrieving conversations.", status: 300 });
+			return ({ data: [], error: "The `did` is required when retrieving conversations.", status: 300 });
 		}
 
 		/** Return results */
 		let { data, error, status } = await query;
-		return({ data, error, status });
+		return ({ data, error, status });
 	}
 
 	/** Get conversation details */
@@ -1674,7 +1226,7 @@ export class Orbis {
 		let { data, error, status } = await this.api.from("orbis_v_conversations").select().eq('stream_id', conversation_id).single();
 
 		/** Return results */
-		return({ data, error, status });
+		return ({ data, error, status });
 	}
 
 	/** Get messages from one conversation */
@@ -1682,6 +1234,6 @@ export class Orbis {
 		let { data, error, status } = await this.api.from("orbis_v_messages").select().eq('conversation_id', conversation_id).range(page * 50, (page + 1) * 50 - 1);
 
 		/** Return results */
-		return({ data, error, status });
+		return ({ data, error, status });
 	}
 }
