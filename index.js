@@ -4,21 +4,12 @@ import { TileDocument } from '@ceramicnetwork/stream-tile';
 import { DIDSession } from 'did-session'
 import { EthereumWebAuth as EthereumWebAuthForPKP, getAccountId as getAccountIdForPKP } from 'pkh-pkp'
 import axios from 'axios';
-
+import { Document } from './Document';
+import { StreamUtils } from '@ceramicnetwork/common';
 /** To generate dids from a Seed */
 import { DID } from 'dids'
 import { Ed25519Provider } from 'key-did-provider-ed25519'
 import { getResolver } from 'key-did-resolver'
-
-
-/** Internal helpers */
-// import { indexer } from './lib/indexer-db.js';
-// import {
-	// forceIndex,
-	// forceIndexDid,
-	// sleep,
-	// sortByKey,
-// } from "./utils/index.js";
 
 /** Initiate the node URLs for the two networks */
 const MAINNET_NODE_URL = "https://node1.orbis.club/";
@@ -59,7 +50,7 @@ const notificationsReadSchemaStream = "kjzl6cwe1jw14a4hg7d96srbp4tm2lox68ry6uv4m
 const notificationsReadSchemaCommit = "k3y52l7qbv1fryfzw38e9ccib6qakyi97weer4rhcskd6cwb26sx7lgkw491a6z9c"
 
 /** Definition of the Orbis class powering the Orbis SDK */
-export class Orbis {
+class Orbis {
 
 	/** Initiate some values for the class */
 	ceramic;
@@ -1236,4 +1227,13 @@ export class Orbis {
 		/** Return results */
 		return ({ data, error, status });
 	}
+}
+
+export {
+	CeramicClient,
+	Orbis,
+	DIDSession,
+	Document,
+	TileDocument,
+	StreamUtils,
 }
