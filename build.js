@@ -14,8 +14,6 @@ async function main() {
 
 await main();
 
-// wait for 2 seconds
-
 // get the file size of the output file in kb in javascript 
 const stats = fs.statSync('./dist/orbis-sdk.js');
 const fileSizeInBytes = stats.size;

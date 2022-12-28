@@ -1,7 +1,21 @@
+# NOTE: This is not the official Orbis SDK
+
+There are two versions of the Orbis SDK
+
+## Lit Action
+1. A stripped-down and webpacked version of Orbis SDK that can be run on Lit Actions.
+
+## Orbis SDK <> PKP 
+2. A modified version that Orbis SDK are fully compatible with PKP. That means a PKP can do whatever functions that Orbis SDK has to offer.
+
+# Available Lit Action APIs
+
 # Build decentralized social apps with the Orbis SDK
+
 By using the Orbis SDK, developers can build their own decentralized social apps or add a decentralized social layer to their existing application in a very easy and performant way.
 
 ## Why you should build on Orbis
+
 By being built on top of Ceramic, Orbis offers many advantages to developers interested in building decentralized social applications:
 
 - No transaction fees
@@ -12,6 +26,7 @@ By being built on top of Ceramic, Orbis offers many advantages to developers int
 - (Coming soon) Multichain: Users can join Orbis using additional chains such as Cosmos or Solana and interact together in the same digital space
 
 ## Use cases
+
 Here are some examples of applications that could be built on top of Orbis:
 
 - Full social apps like [orbis.club](https://orbis.club)
@@ -24,4 +39,5 @@ Here are some examples of applications that could be built on top of Orbis:
 - And many other things...
 
 ## Documentation
+
 Our documentation is available at https://orbis.club/developers

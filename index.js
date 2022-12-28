@@ -9,7 +9,8 @@ import { StreamUtils } from '@ceramicnetwork/common';
 /** To generate dids from a Seed */
 import { DID } from 'dids'
 import { Ed25519Provider } from 'key-did-provider-ed25519'
-import { getResolver } from 'key-did-resolver'
+import { getResolver } from 'key-did-resolver';
+import { createClient } from '@supabase/supabase-js'
 
 /** Initiate the node URLs for the two networks */
 const MAINNET_NODE_URL = "https://node1.orbis.club/";
@@ -1236,4 +1237,33 @@ export {
 	Document,
 	TileDocument,
 	StreamUtils,
+	
+	// commits
+	postSchemaStream,
+	postSchemaCommit,
+	groupSchemaStream,
+	groupSchemaCommit,
+	channelSchemaStream,
+	channelSchemaCommit,
+	profileSchemaStream,
+	profileSchemaCommit,
+	reactionSchemaStream,
+	reactionSchemaCommit,
+	followSchemaStream,
+	followSchemaCommit,
+	groupMemberSchemaStream,
+	groupMemberSchemaCommit,
+	conversationSchemaStream,
+	conversationSchemaCommit,
+	messageSchemaStream,
+	messageSchemaCommit,
+	notificationsReadSchemaStream,
+	notificationsReadSchemaCommit,
+
+	MAINNET_NODE_URL,
+	TESTNET_NODE_URL,
+	PINATA_GATEWAY,
+
+	// supabase
+	createClient
 }
